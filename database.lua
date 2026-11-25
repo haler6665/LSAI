@@ -1,30 +1,38 @@
 
 --[[
     LSAI Database
-    Version: 0.4.0
-    Runtime: Standard Lua
-    Storage: In-Memory
+    Version: 0.5.0
+
+    In-memory storage:
+    - Settings
+    - Scan history
+    - Statistics
+
+    This module does not access files or the network.
 ]]
 
 local Database = {
-    Version = "0.4.0",
+    Name = "LSAI Database",
+    Version = "0.5.0",
+    Initialized = false
+}
 
-    Settings = {
-        Language = "en",
-        Theme = "Dark",
-        Animations = true,
-        Notifications = true
-    },
+local DEFAULT_SETTINGS = {
+    Language = "en",
+    Theme = "Dark",
+    Animations = true,
+    Notifications = true,
+    AutoScan = false,
+    ScanLevel = "Normal"
+}
 
-    Statistics = {
-        TotalScans = 0,
-        CleanScans = 0,
-        WarningScans = 0,
-        HighRiskScans = 0
-    },
-
-    History = {},
-    MaxHistory = 100
+local settings = {}
+local history = {}
+local statistics = {
+    TotalScans = 0,
+    Safe = 0,
+    Warnings = 0,
+    Dangerous = 0
 }
 
 local function copyTable(source)
@@ -41,28 +49,55 @@ local function copyTable(source)
     return result
 end
 
+function Database.Initialize()
+    settings = copyTable(DEFAULT_SETTINGS)
+    history = {}
+
+    statistics = {
+        TotalScans = 0,
+        Safe = 0,
+        Warnings = 0,
+        Dangerous = 0
+    }
+
+    Database.Initialized = true
+    return true
+end
+
 function Database.GetSetting(key)
-    return Database.Settings[key]
+    if type(key) ~= "string" then
+        return nil
+    end
+
+    return settings[key]
 end
 
 function Database.SetSetting(key, value)
-    if Database.Settings[key] == nil then
+    if type(key) ~= "string" or key == "" then
+        return false, "Invalid setting key"
+    end
+
+    local defaultValue = DEFAULT_SETTINGS[key]
+
+    if defaultValue == nil then
         return false, "Unknown setting"
     end
 
-    local expectedType = type(Database.Settings[key])
-
-    if type(value) ~= expectedType then
-        return false, "Invalid setting type"
+    if type(value) ~= type(defaultValue) then
+        return false, "Invalid setting value type"
     end
 
-    Database.Settings[key] = value
-
+    settings[key] = value
     return true
 end
 
 function Database.GetSettings()
-    return copyTable(Database.Settings)
+    return copyTable(settings)
+end
+
+function Database.ResetSettings()
+    settings = copyTable(DEFAULT_SETTINGS)
+    return true
 end
 
 function Database.AddScan(result)
@@ -70,65 +105,66 @@ function Database.AddScan(result)
         return false, "Invalid scan result"
     end
 
-    local level = tostring(result.level or result.Level or "UNKNOWN")
+    local status = result.Status
+
+    if status ~= "Safe"
+        and status ~= "Warning"
+        and status ~= "Dangerous" then
+        return false, "Invalid scan status"
+    end
+
     local entry = {
-        Level = level,
-        Score = tonumber(result.score or result.Score) or 0,
-        Findings = tonumber(result.count or result.Count) or 0,
+        Status = status,
+        Score = tonumber(result.Score) or 0,
         Timestamp = os.time()
     }
 
-    Database.Statistics.TotalScans =
-        Database.Statistics.TotalScans + 1
+    table.insert(history, 1, entry)
+    statistics.TotalScans = statistics.TotalScans + 1
 
-    if level == "NONE" then
-        Database.Statistics.CleanScans =
-            Database.Statistics.CleanScans + 1
-    elseif level == "LOW" or level == "MEDIUM" then
-        Database.Statistics.WarningScans =
-            Database.Statistics.WarningScans + 1
-    elseif level == "HIGH" or level == "CRITICAL" then
-        Database.Statistics.HighRiskScans =
-            Database.Statistics.HighRiskScans + 1
-    end
-
-    table.insert(Database.History, 1, entry)
-
-    while #Database.History > Database.MaxHistory do
-        table.remove(Database.History)
+    if status == "Safe" then
+        statistics.Safe = statistics.Safe + 1
+    elseif status == "Warning" then
+        statistics.Warnings = statistics.Warnings + 1
+    else
+        statistics.Dangerous = statistics.Dangerous + 1
     end
 
     return true
 end
 
-function Database.GetHistory()
-    return copyTable(Database.History)
-end
+function Database.GetHistory(limit)
+    limit = tonumber(limit) or #history
+    limit = math.max(0, math.floor(limit))
 
-function Database.GetStatistics()
-    return copyTable(Database.Statistics)
+    local result = {}
+
+    for index = 1, math.min(limit, #history) do
+        result[index] = copyTable(history[index])
+    end
+
+    return result
 end
 
 function Database.ClearHistory()
-    Database.History = {}
-
-    Database.Statistics = {
-        TotalScans = 0,
-        CleanScans = 0,
-        WarningScans = 0,
-        HighRiskScans = 0
-    }
-
+    history = {}
     return true
+end
+
+function Database.GetStatistics()
+    return copyTable(statistics)
 end
 
 function Database.GetInfo()
     return {
+        Name = Database.Name,
         Version = Database.Version,
-        Storage = "In-Memory",
-        HistoryCount = #Database.History,
-        MaxHistory = Database.MaxHistory
+        Initialized = Database.Initialized,
+        HistoryCount = #history,
+        Storage = "Memory only"
     }
 end
+
+Database.Initialize()
 
 return Database
