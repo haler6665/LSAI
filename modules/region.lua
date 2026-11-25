@@ -1,12 +1,22 @@
 
 --[[
     LSAI Region Module
-    Version: 0.4.0
+    Version: 0.5.0
     Runtime: Standard Lua
+
+    Features:
+    - Locale parsing
+    - Region detection from supplied locale
+    - Language suggestions
+    - Safe fallback
+    - No automatic language switching
 ]]
 
 local Region = {
-    Version = "0.4.0",
+    Name = "LSAI Region Module",
+    Version = "0.5.0",
+    Status = "Ready",
+
     DefaultLanguage = "en",
     DetectedRegion = nil,
     SuggestedLanguage = "en",
@@ -22,6 +32,7 @@ local regionMap = {
     RU = {Language = "ru", Name = "Russia"},
     MD = {Language = "ro", Name = "Moldova"},
     RO = {Language = "ro", Name = "Romania"},
+
     DE = {Language = "de", Name = "Germany"},
     IT = {Language = "it", Name = "Italy"},
     FR = {Language = "fr", Name = "France"},
@@ -30,9 +41,11 @@ local regionMap = {
     UA = {Language = "uk", Name = "Ukraine"},
     PL = {Language = "pl", Name = "Poland"},
     TR = {Language = "tr", Name = "Turkey"},
+
     JP = {Language = "ja", Name = "Japan"},
     KR = {Language = "ko", Name = "South Korea"},
     CN = {Language = "zh", Name = "China"},
+
     BR = {Language = "pt", Name = "Brazil"},
     PT = {Language = "pt", Name = "Portugal"}
 }
@@ -59,60 +72,97 @@ local function normalize(value)
         return nil
     end
 
-    return string.lower(value):gsub("_", "-")
+    value = string.lower(value)
+    value = string.gsub(value, "_", "-")
+
+    return value
+end
+
+local function resetDetection()
+    Region.DetectedRegion = nil
+    Region.SuggestedLanguage = Region.DefaultLanguage
+    Region.DetectionMethod = "fallback"
+end
+
+local function setResult(language, country, method)
+    Region.DetectedRegion = country
+    Region.SuggestedLanguage = language
+    Region.DetectionMethod = method
+
+    return language
 end
 
 function Region.DetectFromLocale(locale)
     locale = normalize(locale)
 
-    if not locale then
-        return nil, "Invalid locale"
+    resetDetection()
+
+    if not locale or locale == "" then
+        return Region.DefaultLanguage, "Invalid locale"
     end
 
-    local language, country = locale:match("^([a-z]+)%-([a-z]+)$")
+    -- Supports language-country format:
+    -- en-US, ro-RO, pt-BR
 
-    if language then
+    local language, country = locale:match(
+        "^([a-z]+)%-([a-z]+)$"
+    )
+
+    if language and country then
         country = string.upper(country)
 
         local region = regionMap[country]
 
         if region then
-            Region.DetectedRegion = country
-            Region.SuggestedLanguage = region.Language
-            Region.DetectionMethod = "locale-region"
+            return setResult(
+                region.Language,
+                country,
+                "locale-region"
+            )
+        end
 
-            return region.Language
+        if languageMap[language] then
+            return setResult(
+                languageMap[language],
+                nil,
+                "locale-language"
+            )
         end
     end
 
-    local baseLanguage = locale:match("^([a-z]+)")
+    -- Supports language-only format:
+    -- en, ru, ro
+
+    local baseLanguage = locale:match("^([a-z]+)$")
 
     if baseLanguage and languageMap[baseLanguage] then
-        Region.SuggestedLanguage = languageMap[baseLanguage]
-        Region.DetectionMethod = "locale-language"
-
-        return Region.SuggestedLanguage
+        return setResult(
+            languageMap[baseLanguage],
+            nil,
+            "locale-language"
+        )
     end
 
-    Region.SuggestedLanguage = Region.DefaultLanguage
-    Region.DetectionMethod = "fallback"
-
-    return Region.DefaultLanguage
+    return setResult(
+        Region.DefaultLanguage,
+        nil,
+        "fallback"
+    )
 end
 
 function Region.Detect()
-    -- Standard Lua does not provide a universal locale API.
-    -- The host application may provide a locale string later.
-
-    Region.SuggestedLanguage = Region.DefaultLanguage
-    Region.DetectionMethod = "fallback"
+    -- Standard Lua has no universal locale API.
+    -- The host application must provide the locale.
+    resetDetection()
 
     return Region.SuggestedLanguage
 end
 
 function Region.SetSuggestion(language, method)
-    if type(language) ~= "string" then
-        return false, "Invalid language"
+    language = normalize(language)
+
+    if not language or not languageMap[language] then
+        return false, "Unsupported language"
     end
 
     Region.SuggestedLanguage = language
@@ -121,17 +171,49 @@ function Region.SetSuggestion(language, method)
     return true
 end
 
+function Region.GetRegionName()
+    if not Region.DetectedRegion then
+        return nil
+    end
+
+    local region = regionMap[Region.DetectedRegion]
+
+    return region and region.Name or nil
+end
+
 function Region.GetSuggestion()
     return {
         Region = Region.DetectedRegion,
+        RegionName = Region.GetRegionName(),
         Language = Region.SuggestedLanguage,
         Method = Region.DetectionMethod
     }
 end
 
+function Region.GetSupportedRegions()
+    local result = {}
+
+    for code, region in pairs(regionMap) do
+        result[#result + 1] = {
+            Code = code,
+            Name = region.Name,
+            Language = region.Language
+        }
+    end
+
+    table.sort(result, function(a, b)
+        return a.Name < b.Name
+    end)
+
+    return result
+end
+
 function Region.GetInfo()
     return {
+        Name = Region.Name,
         Version = Region.Version,
+        Status = Region.Status,
+        DefaultLanguage = Region.DefaultLanguage,
         DetectedRegion = Region.DetectedRegion,
         SuggestedLanguage = Region.SuggestedLanguage,
         DetectionMethod = Region.DetectionMethod
@@ -139,4 +221,3 @@ function Region.GetInfo()
 end
 
 return Region
-
