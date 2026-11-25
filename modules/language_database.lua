@@ -1,14 +1,21 @@
-
 --[[
     LSAI Language Database
-    Version: 0.4.0
+    Version: 0.5.0
     Runtime: Standard Lua
+
+    Features:
+    - Language and regional language database
+    - Safe data copies
+    - Search by code and language name
+    - Regional language fallback
+    - Translation status management
 ]]
 
 local LanguageDatabase = {
-    Version = "0.4.0",
+    Name = "LSAI Language Database",
+    Version = "0.5.0",
     DefaultLanguage = "en",
-    Languages = {}
+    Status = "Ready"
 }
 
 local entries = {
@@ -99,17 +106,66 @@ local entries = {
     {"zh-TW", "Chinese (Traditional)", "繁體中文", "zh"}
 }
 
+local languages = {}
+local languageIndex = {}
+
+local allowedStatuses = {
+    ["Not translated"] = true,
+    ["Partially translated"] = true,
+    ["Translated"] = true
+}
+
+local function normalizeCode(code)
+    if type(code) ~= "string" then
+        return nil
+    end
+
+    code = string.lower(code)
+    code = string.gsub(code, "_", "-")
+
+    return code
+end
+
+local function copyLanguage(language)
+    if not language then
+        return nil
+    end
+
+    return {
+        Code = language.Code,
+        EnglishName = language.EnglishName,
+        NativeName = language.NativeName,
+        BaseLanguage = language.BaseLanguage,
+        TranslationStatus = language.TranslationStatus
+    }
+end
+
+local function copyLanguages(source)
+    local result = {}
+
+    for index, language in ipairs(source) do
+        result[index] = copyLanguage(language)
+    end
+
+    return result
+end
+
+-- Build internal database.
+
 for _, item in ipairs(entries) do
-    LanguageDatabase.Languages[#LanguageDatabase.Languages + 1] = {
+    local language = {
         Code = item[1],
         EnglishName = item[2],
         NativeName = item[3],
         BaseLanguage = item[4] or item[1],
         TranslationStatus = "Not translated"
     }
+
+    languages[#languages + 1] = language
+    languageIndex[normalizeCode(language.Code)] = language
 end
 
-table.sort(LanguageDatabase.Languages, function(a, b)
+table.sort(languages, function(a, b)
     local first = string.lower(a.EnglishName)
     local second = string.lower(b.EnglishName)
 
@@ -120,30 +176,43 @@ table.sort(LanguageDatabase.Languages, function(a, b)
     return first < second
 end)
 
+-- Compatibility snapshot.
+-- Editing this table does not change the internal database.
+
+LanguageDatabase.Languages = copyLanguages(languages)
+
 function LanguageDatabase.GetAll()
-    local result = {}
-
-    for index, language in ipairs(LanguageDatabase.Languages) do
-        result[index] = {
-            Code = language.Code,
-            EnglishName = language.EnglishName,
-            NativeName = language.NativeName,
-            BaseLanguage = language.BaseLanguage,
-            TranslationStatus = language.TranslationStatus
-        }
-    end
-
-    return result
+    return copyLanguages(languages)
 end
 
 function LanguageDatabase.Get(code)
-    for _, language in ipairs(LanguageDatabase.Languages) do
-        if language.Code == code then
-            return language
-        end
+    local normalized = normalizeCode(code)
+
+    if not normalized then
+        return nil
     end
 
-    return nil
+    return copyLanguage(languageIndex[normalized])
+end
+
+function LanguageDatabase.GetBaseLanguage(code)
+    local language = LanguageDatabase.Get(code)
+
+    if not language then
+        return nil
+    end
+
+    return language.BaseLanguage
+end
+
+function LanguageDatabase.IsSupported(code)
+    local normalized = normalizeCode(code)
+
+    if not normalized then
+        return false
+    end
+
+    return languageIndex[normalized] ~= nil
 end
 
 function LanguageDatabase.Search(query)
@@ -155,7 +224,7 @@ function LanguageDatabase.Search(query)
         return results
     end
 
-    for _, language in ipairs(LanguageDatabase.Languages) do
+    for _, language in ipairs(languages) do
         local english = string.lower(language.EnglishName)
         local native = string.lower(language.NativeName)
         local code = string.lower(language.Code)
@@ -163,21 +232,53 @@ function LanguageDatabase.Search(query)
         if string.find(english, query, 1, true)
         or string.find(native, query, 1, true)
         or string.find(code, query, 1, true) then
-            results[#results + 1] = language
+            results[#results + 1] = copyLanguage(language)
         end
     end
 
     return results
 end
 
+function LanguageDatabase.SetTranslationStatus(code, status)
+    local normalized = normalizeCode(code)
+
+    if not normalized then
+        return false, "Invalid language code"
+    end
+
+    if not allowedStatuses[status] then
+        return false, "Invalid translation status"
+    end
+
+    local language = languageIndex[normalized]
+
+    if not language then
+        return false, "Language not found"
+    end
+
+    language.TranslationStatus = status
+
+    -- Update the compatibility snapshot too.
+    for _, publicLanguage in ipairs(LanguageDatabase.Languages) do
+        if publicLanguage.Code == language.Code then
+            publicLanguage.TranslationStatus = status
+            break
+        end
+    end
+
+    return true
+end
+
 function LanguageDatabase.GetCount()
-    return #LanguageDatabase.Languages
+    return #languages
 end
 
 function LanguageDatabase.GetInfo()
     return {
+        Name = LanguageDatabase.Name,
         Version = LanguageDatabase.Version,
-        LanguageCount = #LanguageDatabase.Languages,
+        Status = LanguageDatabase.Status,
+        LanguageCount = #languages,
         DefaultLanguage = LanguageDatabase.DefaultLanguage
     }
 end
