@@ -1,16 +1,20 @@
 
 --[[
     LSAI Instructions Module
-    Version: 0.4.0
+    Version: 0.5.0
     Runtime: Standard Lua
+
+    Provides documentation and help pages.
+    Does not execute Lua source code.
 ]]
 
 local Instructions = {
-    Version = "0.4.0",
+    Name = "LSAI Instructions Module",
+    Version = "0.5.0",
     Language = "en"
 }
 
-Instructions.Pages = {
+local pages = {
     overview = {
         Title = "LSAI Overview",
         Text = "LSAI is a static Lua source analyzer."
@@ -47,7 +51,7 @@ Instructions.Pages = {
     }
 }
 
-Instructions.Commands = {
+local commands = {
     {
         Name = "GetInfo",
         Description = "Returns LSAI information."
@@ -70,27 +74,46 @@ Instructions.Commands = {
     }
 }
 
+local function copyTable(source)
+    local result = {}
+
+    for key, value in pairs(source) do
+        if type(value) == "table" then
+            result[key] = copyTable(value)
+        else
+            result[key] = value
+        end
+    end
+
+    return result
+end
+
 local function normalize(value)
-    return string.lower(tostring(value or ""))
+    if type(value) ~= "string" then
+        return ""
+    end
+
+    return string.lower(value)
 end
 
 function Instructions.GetPage(name)
-    local page = Instructions.Pages[normalize(name)]
+    if type(name) ~= "string" then
+        return nil, "Invalid page name"
+    end
+
+    local page = pages[normalize(name)]
 
     if not page then
         return nil, "Page not found"
     end
 
-    return {
-        Title = page.Title,
-        Text = page.Text
-    }
+    return copyTable(page)
 end
 
 function Instructions.GetPages()
     local result = {}
 
-    for name, page in pairs(Instructions.Pages) do
+    for name, page in pairs(pages) do
         result[#result + 1] = {
             Name = name,
             Title = page.Title
@@ -104,6 +127,10 @@ function Instructions.GetPages()
     return result
 end
 
+function Instructions.GetAllPages()
+    return copyTable(pages)
+end
+
 function Instructions.Search(query)
     query = normalize(query)
 
@@ -113,7 +140,7 @@ function Instructions.Search(query)
 
     local results = {}
 
-    for name, page in pairs(Instructions.Pages) do
+    for name, page in pairs(pages) do
         local title = normalize(page.Title)
         local description = normalize(page.Text)
 
@@ -129,24 +156,19 @@ function Instructions.Search(query)
         end
     end
 
+    table.sort(results, function(a, b)
+        return a.Name < b.Name
+    end)
+
     return results
 end
 
 function Instructions.GetCommands()
-    local result = {}
-
-    for index, command in ipairs(Instructions.Commands) do
-        result[index] = {
-            Name = command.Name,
-            Description = command.Description
-        }
-    end
-
-    return result
+    return copyTable(commands)
 end
 
 function Instructions.SetLanguage(language)
-    if type(language) ~= "string" then
+    if type(language) ~= "string" or language == "" then
         return false, "Invalid language"
     end
 
@@ -155,12 +177,23 @@ function Instructions.SetLanguage(language)
     return true
 end
 
+function Instructions.GetLanguage()
+    return Instructions.Language
+end
+
 function Instructions.GetInfo()
+    local pageCount = 0
+
+    for _ in pairs(pages) do
+        pageCount = pageCount + 1
+    end
+
     return {
+        Name = Instructions.Name,
         Version = Instructions.Version,
         Language = Instructions.Language,
-        PageCount = #Instructions.GetPages(),
-        CommandCount = #Instructions.Commands
+        PageCount = pageCount,
+        CommandCount = #commands
     }
 end
 
