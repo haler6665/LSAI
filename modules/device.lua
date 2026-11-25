@@ -1,54 +1,97 @@
 
--- LSAI Device Information
--- Version: 0.1.0
+--[[
+    LSAI Device Module
+    Version: 0.4.0
+    Runtime: Standard Lua
+]]
 
 local Device = {
-    Version = "0.1.0",
+    Version = "0.4.0",
+
     Information = {
+        Runtime = "Unknown",
+        LuaVersion = _VERSION or "Unknown",
         Platform = "Unknown",
-        DeviceName = "Unknown",
-        CPU = "Unknown",
-        GPU = "Unknown",
-        RAM = "Unknown",
-        LuaVersion = _VERSION or "Unknown"
+        Storage = "Unknown",
+        RuntimeFeatures = {}
     }
 }
 
-function Device:GetInfo()
-    return self.Information
-end
+local function safeCheck(callback)
+    local success, result = pcall(callback)
 
-function Device:Get(key)
-    return self.Information[key] or "Unknown"
-end
-
-function Device:SetInfo(key, value)
-    if self.Information[key] == nil then
-        return false
+    if success then
+        return result
     end
 
-    if type(value) ~= "string" then
-        return false
-    end
-
-    self.Information[key] = value
-    return true
+    return nil
 end
 
-function Device:GetReport()
-    local info = self.Information
+function Device.DetectRuntime()
+    if type(jit) == "table" then
+        Device.Information.Runtime = "LuaJIT"
+    elseif _VERSION then
+        Device.Information.Runtime = "Standard Lua"
+    else
+        Device.Information.Runtime = "Unknown"
+    end
+
+    return Device.Information.Runtime
+end
+
+function Device.DetectFeatures()
+    local features = {
+        FileRead = type(io) == "table"
+            and type(io.open) == "function",
+
+        FileWrite = type(io) == "table"
+            and type(io.open) == "function",
+
+        OperatingSystemInfo = type(os) == "table"
+            and type(os.time) == "function",
+
+        TableLibrary = type(table) == "table",
+
+        StringLibrary = type(string) == "table",
+
+        MathLibrary = type(math) == "table"
+    }
+
+    Device.Information.RuntimeFeatures = features
+
+    return features
+end
+
+function Device.GetMemoryInfo()
+    local memory = safeCheck(function()
+        if type(collectgarbage) == "function" then
+            return collectgarbage("count")
+        end
+    end)
+
+    if type(memory) ~= "number" then
+        return nil
+    end
 
     return {
-        "LSAI DEVICE REPORT",
-        "------------------",
-        "Platform: " .. info.Platform,
-        "Device: " .. info.DeviceName,
-        "CPU: " .. info.CPU,
-        "GPU: " .. info.GPU,
-        "RAM: " .. info.RAM,
-        "Lua: " .. info.LuaVersion
+        UsedKB = memory,
+        UsedMB = memory / 1024
+    }
+end
+
+function Device.GetInfo()
+    Device.DetectRuntime()
+    Device.DetectFeatures()
+
+    return {
+        Version = Device.Version,
+        Runtime = Device.Information.Runtime,
+        LuaVersion = Device.Information.LuaVersion,
+        Platform = Device.Information.Platform,
+        Storage = Device.Information.Storage,
+        Features = Device.Information.RuntimeFeatures,
+        Memory = Device.GetMemoryInfo()
     }
 end
 
 return Device
-
