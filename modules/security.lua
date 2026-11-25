@@ -1,7 +1,7 @@
 
 --[[
     LSAI Security Module
-    Version: 0.1.0
+    Version: 0.5.0
 
     Static Lua source analyzer.
     Does not execute scanned code.
@@ -10,10 +10,9 @@
 local Security = {}
 
 Security.Name = "LSAI Security"
-Security.Version = "0.1.0"
+Security.Version = "0.5.0"
 Security.Status = "Ready"
 
--- Risk levels
 Security.Levels = {
     NONE = "NONE",
     LOW = "LOW",
@@ -22,7 +21,10 @@ Security.Levels = {
     CRITICAL = "CRITICAL"
 }
 
--- Detection database
+local MAX_SOURCE_SIZE = 1000000
+local MAX_FINDINGS = 100
+
+-- Detection rules
 local Rules = {
     {
         id = "D001",
@@ -92,11 +94,11 @@ local Rules = {
             "bit32%.bxor"
         },
         severity = 8,
-        description = "Possible string construction or code obfuscation."
+        description = "Possible string construction or obfuscation."
     },
     {
         id = "D007",
-        name = "Suspicious environment functions",
+        name = "Executor-specific functions",
         patterns = {
             "gethui",
             "identifyexecutor",
@@ -107,14 +109,26 @@ local Rules = {
     }
 }
 
--- Count occurrences
+local function CopyTable(source)
+    local result = {}
+
+    for key, value in pairs(source) do
+        if type(value) == "table" then
+            result[key] = CopyTable(value)
+        else
+            result[key] = value
+        end
+    end
+
+    return result
+end
+
 local function CountMatches(source, pattern)
     local count = 0
     local position = 1
 
-    while true do
-        local startIndex, endIndex =
-            source:find(pattern, position)
+    while position <= #source do
+        local startIndex, endIndex = source:find(pattern, position)
 
         if not startIndex then
             break
@@ -122,12 +136,16 @@ local function CountMatches(source, pattern)
 
         count = count + 1
         position = endIndex + 1
+
+        -- Avoid infinite loops on empty matches.
+        if endIndex < startIndex then
+            position = startIndex + 1
+        end
     end
 
     return count
 end
 
--- Find matching line numbers
 local function FindLines(source, pattern)
     local lines = {}
     local lineNumber = 0
@@ -143,7 +161,6 @@ local function FindLines(source, pattern)
     return lines
 end
 
--- Risk calculation
 local function GetLevel(score)
     if score >= 80 then
         return Security.Levels.CRITICAL
@@ -158,13 +175,24 @@ local function GetLevel(score)
     return Security.Levels.NONE
 end
 
--- Main scan function
+local function SafePattern(pattern)
+    if type(pattern) ~= "string" then
+        return false
+    end
+
+    local ok = pcall(function()
+        ("test"):find(pattern)
+    end)
+
+    return ok
+end
+
 function Security.Scan(source)
     if type(source) ~= "string" then
         return nil, "Source must be a string."
     end
 
-    if #source > 1000000 then
+    if #source > MAX_SOURCE_SIZE then
         return nil, "Source is too large."
     end
 
@@ -174,32 +202,57 @@ function Security.Scan(source)
         findings = {},
         score = 0,
         level = Security.Levels.NONE,
-        scannedBytes = #source
+        scannedBytes = #source,
+        findingCount = 0,
+        warnings = {}
     }
 
     local totalWeight = 0
 
     for _, rule in ipairs(Rules) do
+        local totalCount = 0
+        local matchedLines = {}
+        local seenLines = {}
+
         for _, pattern in ipairs(rule.patterns) do
-            local count = CountMatches(source, pattern)
+            if SafePattern(pattern) then
+                local count = CountMatches(source, pattern)
+                totalCount = totalCount + count
 
-            if count > 0 then
-                local finding = {
-                    id = rule.id,
-                    name = rule.name,
-                    description = rule.description,
-                    severity = rule.severity,
-                    count = count,
-                    lines = FindLines(source, pattern)
-                }
+                local lines = FindLines(source, pattern)
 
-                table.insert(results.findings, finding)
-
-                totalWeight = totalWeight +
-                    math.min(rule.severity * count, rule.severity * 3)
-
-                break
+                for _, lineNumber in ipairs(lines) do
+                    if not seenLines[lineNumber] then
+                        seenLines[lineNumber] = true
+                        table.insert(matchedLines, lineNumber)
+                    end
+                end
+            else
+                table.insert(
+                    results.warnings,
+                    "Invalid detection pattern in rule " .. rule.id
+                )
             end
+        end
+
+        if totalCount > 0 then
+            table.sort(matchedLines)
+
+            local finding = {
+                id = rule.id,
+                name = rule.name,
+                description = rule.description,
+                severity = rule.severity,
+                count = totalCount,
+                lines = matchedLines
+            }
+
+            if #results.findings < MAX_FINDINGS then
+                table.insert(results.findings, finding)
+            end
+
+            totalWeight = totalWeight +
+                math.min(rule.severity * totalCount, rule.severity * 3)
         end
     end
 
@@ -210,25 +263,38 @@ function Security.Scan(source)
     return results
 end
 
--- Get available rules
 function Security.GetRules()
-    local copy = {}
+    local result = {}
 
     for index, rule in ipairs(Rules) do
-        copy[index] = {
+        result[index] = {
             id = rule.id,
             name = rule.name,
             severity = rule.severity,
-            description = rule.description
+            description = rule.description,
+            patterns = CopyTable(rule.patterns)
         }
     end
 
-    return copy
+    return result
 end
 
--- Format report
+function Security.GetLevel(score)
+    if type(score) ~= "number" then
+        return nil
+    end
+
+    return GetLevel(math.max(0, math.min(score, 100)))
+end
+
 function Security.FormatReport(results)
     if type(results) ~= "table" then
+        return "Invalid scan result."
+    end
+
+    if type(results.findings) ~= "table"
+        or type(results.score) ~= "number"
+        or type(results.level) ~= "string" then
         return "Invalid scan result."
     end
 
@@ -237,23 +303,60 @@ function Security.FormatReport(results)
         "Version: " .. Security.Version,
         "Risk: " .. results.level,
         "Score: " .. results.score .. "/100",
-        "Findings: " .. results.findingCount,
-        "Scanned bytes: " .. results.scannedBytes,
+        "Findings: " .. tostring(results.findingCount or #results.findings),
+        "Scanned bytes: " .. tostring(results.scannedBytes or 0),
         "-------------------------"
     }
 
     for _, finding in ipairs(results.findings) do
-        table.insert(output, finding.id .. " - " .. finding.name)
-        table.insert(output, finding.description)
-        table.insert(output, "Occurrences: " .. finding.count)
-        table.insert(output, "-------------------------")
+        if type(finding) == "table" then
+            table.insert(
+                output,
+                tostring(finding.id) .. " - " .. tostring(finding.name)
+            )
+
+            table.insert(output, tostring(finding.description))
+            table.insert(output, "Occurrences: " .. tostring(finding.count))
+
+            if type(finding.lines) == "table" and #finding.lines > 0 then
+                table.insert(
+                    output,
+                    "Lines: " .. table.concat(finding.lines, ", ")
+                )
+            end
+
+            table.insert(output, "-------------------------")
+        end
     end
 
-    if results.findingCount == 0 then
+    if #results.findings == 0 then
         table.insert(output, "No known indicators detected.")
     end
 
+    if type(results.warnings) == "table" then
+        for _, warning in ipairs(results.warnings) do
+            table.insert(output, "Warning: " .. tostring(warning))
+        end
+    end
+
+    table.insert(
+        output,
+        "Note: Static analysis cannot guarantee that source code is safe."
+    )
+
     return table.concat(output, "\n")
+end
+
+function Security.GetInfo()
+    return {
+        Name = Security.Name,
+        Version = Security.Version,
+        Status = Security.Status,
+        RuleCount = #Rules,
+        MaxSourceSize = MAX_SOURCE_SIZE,
+        MaxFindings = MAX_FINDINGS,
+        ExecutesCode = false
+    }
 end
 
 return Security
