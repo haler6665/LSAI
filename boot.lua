@@ -1,56 +1,100 @@
 
--- LSAI Bootloader
--- Version: 0.1.0
+--[[
+    LSAI Bootloader
+    Version: 0.4.0
+    Runtime: Standard Lua
+]]
 
 local Boot = {
-    Version = "0.1.0",
-    Status = "Initializing"
+    Name = "LSAI Bootloader",
+    Version = "0.4.0",
+    Status = "Starting",
+    Errors = {}
 }
 
-local requiredModules = {
-    "security",
-    "instructions",
-    "device",
-    "interface",
-    "settings",
-    "macros"
-}
+local function log(message)
+    print("[LSAI:BOOT] " .. tostring(message))
+end
 
-function Boot:CheckModules()
-    print("[BOOT] Checking modules...")
+local function addError(message)
+    Boot.Errors[#Boot.Errors + 1] = tostring(message)
+    log("ERROR: " .. tostring(message))
+end
 
-    for _, name in ipairs(requiredModules) do
-        local success, result = pcall(
-            require,
-            "modules." .. name
-        )
+local function validateCore(core)
+    if type(core) ~= "table" then
+        return false, "Core must be a table"
+    end
 
-        if not success or type(result) ~= "table" then
-            self.Status = "Failed"
-            warn("[BOOT] Missing or invalid module: " .. name)
-            return false
+    local required = {
+        "Initialize",
+        "RegisterModule",
+        "GetModule",
+        "GetStatus"
+    }
+
+    for _, method in ipairs(required) do
+        if type(core[method]) ~= "function" then
+            return false, "Missing core method: " .. method
         end
-
-        print("[BOOT] OK: " .. name)
     end
 
     return true
 end
 
-function Boot:Start()
-    print("========================")
-    print("       LSAI BOOT")
-    print("========================")
+function Boot.Start(core, moduleLoader)
+    Boot.Status = "Starting"
+    Boot.Errors = {}
 
-    if not self:CheckModules() then
-        warn("[BOOT] Startup cancelled.")
+    log("Boot sequence started")
+
+    local valid, reason = validateCore(core)
+
+    if not valid then
+        addError(reason)
+        Boot.Status = "Failed"
         return false
     end
 
-    self.Status = "Ready"
-    print("[BOOT] All checks passed.")
+    if type(moduleLoader) ~= "function" then
+        addError("Module loader is missing")
+        Boot.Status = "Failed"
+        return false
+    end
+
+    local success, result = pcall(
+        core.Initialize,
+        core,
+        moduleLoader
+    )
+
+    if not success then
+        addError(result)
+        Boot.Status = "Failed"
+        return false
+    end
+
+    if result ~= true then
+        addError("Core initialization failed")
+        Boot.Status = "Failed"
+        return false
+    end
+
+    Boot.Status = "Ready"
+
+    log("Boot sequence completed")
+
     return true
 end
 
-return Boot
+function Boot.GetStatus()
+    return Boot.Status
+end
 
+function Boot.GetErrors()
+    return Boot.Errors
+end
+
+log("Bootloader loaded")
+
+return Boot
