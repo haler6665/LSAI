@@ -1,10 +1,10 @@
 
 -- LSAI GUI Adapter
--- Version: 0.4.0
+-- Version: 0.4.1
 -- Backend: LÖVE (Love2D)
 
 local Adapter = {
-    Version = "0.4.0",
+    Version = "0.4.1",
     Status = "NotInitialized",
 
     Width = 330,
@@ -12,6 +12,7 @@ local Adapter = {
 
     Visible = false,
     CurrentPage = "Main",
+    State = nil,
 
     Animation = {
         Enabled = true,
@@ -20,27 +21,37 @@ local Adapter = {
         Speed = 5
     },
 
-    State = nil
+    Buttons = {}
 }
 
-local function getColor(hex)
+local function color(hex)
     hex = hex:gsub("#", "")
 
     local r = tonumber(hex:sub(1, 2), 16) or 0
     local g = tonumber(hex:sub(3, 4), 16) or 0
     local b = tonumber(hex:sub(5, 6), 16) or 0
 
-    return r / 255, g / 255, b / 255
+    love.graphics.setColor(r / 255, g / 255, b / 255)
 end
 
-local function setColor(hex)
-    love.graphics.setColor(getColor(hex))
+local function text(value, x, y, tint)
+    color(tint or "#F2F3F5")
+    love.graphics.print(tostring(value or ""), x, y)
 end
 
-local function drawText(text, x, y, color, font)
-    setColor(color or "#F2F3F5")
-    love.graphics.setFont(font or love.graphics.getFont())
-    love.graphics.print(tostring(text or ""), x, y)
+local function button(id, label, x, y, width, height, tint)
+    color(tint or "#292D37")
+    love.graphics.rectangle("fill", x, y, width, height, 7)
+
+    text(label, x + 12, y + 11)
+
+    Adapter.Buttons[#Adapter.Buttons + 1] = {
+        ID = id,
+        X = x,
+        Y = y,
+        Width = width,
+        Height = height
+    }
 end
 
 function Adapter.Initialize()
@@ -57,11 +68,10 @@ function Adapter.Open(animated)
     Adapter.Visible = true
     Adapter.Animation.Enabled = animated ~= false
 
-    if Adapter.Animation.Enabled then
-        Adapter.Animation.Target = 1
-    else
+    Adapter.Animation.Target = 1
+
+    if not Adapter.Animation.Enabled then
         Adapter.Animation.Progress = 1
-        Adapter.Animation.Target = 1
     end
 
     return true
@@ -69,12 +79,10 @@ end
 
 function Adapter.Close(animated)
     Adapter.Animation.Enabled = animated ~= false
+    Adapter.Animation.Target = 0
 
-    if Adapter.Animation.Enabled then
-        Adapter.Animation.Target = 0
-    else
+    if not Adapter.Animation.Enabled then
         Adapter.Animation.Progress = 0
-        Adapter.Animation.Target = 0
         Adapter.Visible = false
     end
 
@@ -91,25 +99,21 @@ function Adapter.Render(state)
 end
 
 function Adapter.Update(dt)
-    if not Adapter.Visible and Adapter.Animation.Target == 0 then
+    local animation = Adapter.Animation
+
+    if animation.Progress == animation.Target then
         return
     end
 
-    local animation = Adapter.Animation
+    local difference = animation.Target - animation.Progress
+    local step = animation.Speed * dt
 
-    if animation.Enabled then
-        local difference = animation.Target - animation.Progress
-        local step = animation.Speed * dt
-
-        if math.abs(difference) <= step then
-            animation.Progress = animation.Target
-        elseif difference > 0 then
-            animation.Progress = animation.Progress + step
-        else
-            animation.Progress = animation.Progress - step
-        end
-    else
+    if math.abs(difference) <= step then
         animation.Progress = animation.Target
+    elseif difference > 0 then
+        animation.Progress = animation.Progress + step
+    else
+        animation.Progress = animation.Progress - step
     end
 
     if animation.Progress <= 0 and animation.Target == 0 then
@@ -129,97 +133,157 @@ function Adapter.Draw()
     local screenHeight = love.graphics.getHeight()
 
     local progress = Adapter.Animation.Progress
-    local x = screenWidth - Adapter.Width * progress
-    local y = (screenHeight - Adapter.Height) / 2
 
-    local background = theme.Background or "#17191F"
+    local panelX = screenWidth - Adapter.Width * progress
+    local panelY = (screenHeight - Adapter.Height) / 2
+
+    local bg = theme.Background or "#17191F"
     local panel = theme.Panel or "#20232B"
     local secondary = theme.Secondary or "#292D37"
-    local border = theme.Border or "#363B47"
-    local text = theme.Text or "#F2F3F5"
     local muted = theme.Muted or "#9299A8"
     local accent = theme.Accent or "#7189FF"
 
-    love.graphics.push()
-    love.graphics.translate(x, y)
+    Adapter.Buttons = {}
 
-    setColor(background)
+    love.graphics.push()
+    love.graphics.translate(panelX, panelY)
+
+    color(bg)
     love.graphics.rectangle(
         "fill", 0, 0,
         Adapter.Width, Adapter.Height, 12
     )
 
-    setColor(border)
-    love.graphics.rectangle(
-        "line", 0, 0,
-        Adapter.Width, Adapter.Height, 12
-    )
-
-    setColor(panel)
+    color(panel)
     love.graphics.rectangle(
         "fill", 0, 0,
         Adapter.Width, 48, 12
     )
 
-    drawText("LSAI", 14, 15, text)
-    drawText("×", Adapter.Width - 28, 10, muted)
+    text("LSAI", 14, 15)
+    text("×", Adapter.Width - 27, 12, muted)
+
+    Adapter.Buttons[#Adapter.Buttons + 1] = {
+        ID = "close",
+        X = Adapter.Width - 42,
+        Y = 0,
+        Width = 42,
+        Height = 48
+    }
 
     local page = Adapter.CurrentPage
 
     if page == "Main" then
-        drawText("Welcome to LSAI", 14, 70, text)
-        drawText("Static Lua source analyzer", 14, 96, muted)
+        text("Welcome to LSAI", 14, 68)
+        text("Static Lua source analyzer", 14, 94, muted)
 
-        setColor(secondary)
-        love.graphics.rectangle("fill", 12, 132, 306, 76, 8)
+        color(secondary)
+        love.graphics.rectangle("fill", 12, 128, 306, 68, 8)
 
-        drawText("Protection status", 24, 145, text)
-        drawText("Ready to scan source code", 24, 170, muted)
+        text("Protection status", 24, 140)
+        text("Ready to scan source code", 24, 165, muted)
 
-        setColor(accent)
-        love.graphics.rectangle("fill", 12, 224, 306, 42, 8)
-        drawText("Import and scan", 92, 236, "#FFFFFF")
+        button("scan", "Import and scan", 12, 210, 306, 42, accent)
 
-        drawText("Recent scans", 14, 292, text)
-        drawText("No scans yet", 14, 320, muted)
+        text("Recent scans", 14, 275)
+        text("No scans yet", 14, 302, muted)
+
+        local nav = {
+            {"settings", "Settings"},
+            {"security", "Security"},
+            {"saved", "Saved Scripts"},
+            {"macros", "Macros"}
+        }
+
+        for index, item in ipairs(nav) do
+            button(
+                "page_" .. item[1],
+                item[2],
+                12,
+                330 + (index - 1) * 24,
+                306,
+                22,
+                panel
+            )
+        end
 
     elseif page == "Settings" then
-        drawText("Settings", 14, 70, text)
-        drawText("Animations", 14, 112, muted)
-        drawText("Notifications", 14, 158, muted)
-        drawText("Language", 14, 204, muted)
-        drawText("Theme", 14, 250, muted)
+        text("Settings", 14, 68)
+        button("back", "< Back", 12, 105, 306, 38)
+        button("animations", "Toggle animations", 12, 155, 306, 38)
+        button("notifications", "Toggle notifications", 12, 202, 306, 38)
+        button("language", "Language", 12, 249, 306, 38)
+        button("theme", "Change theme", 12, 296, 306, 38)
 
     elseif page == "Security" then
-        drawText("Security scanner", 14, 70, text)
-        drawText("Basic scan", 14, 120, muted)
-        drawText("Advanced scan", 14, 168, muted)
-        drawText("Deep scan", 14, 216, muted)
-        drawText("Source code is never executed.", 14, 290, muted)
+        text("Security scanner", 14, 68)
+        button("back", "< Back", 12, 105, 306, 38)
+        button("basic", "Basic scan", 12, 155, 306, 38)
+        button("advanced", "Advanced scan", 12, 202, 306, 38)
+        button("deep", "Deep scan", 12, 249, 306, 38)
+        text("Scans source text only.", 14, 310, muted)
 
     elseif page == "SavedScripts" then
-        drawText("Saved Scripts", 14, 70, text)
-        drawText("Search saved items...", 14, 116, muted)
-        drawText("No saved items", 14, 170, muted)
+        text("Saved Scripts", 14, 68)
+        button("back", "< Back", 12, 105, 306, 38)
+        button("search", "Search saved items", 12, 155, 306, 38)
+        text("No saved items", 14, 210, muted)
 
     elseif page == "Macros" then
-        drawText("Macro editor", 14, 70, text)
-        drawText("Safe macro builder", 14, 116, muted)
-        drawText("No macros created", 14, 170, muted)
+        text("Macro editor", 14, 68)
+        button("back", "< Back", 12, 105, 306, 38)
+        button("new_macro", "New macro", 12, 155, 306, 38)
+        text("No macros created", 14, 210, muted)
     end
-
-    -- Bottom navigation
-    setColor(panel)
-    love.graphics.rectangle(
-        "fill", 0, Adapter.Height - 48,
-        Adapter.Width, 48
-    )
-
-    drawText("<", 16, Adapter.Height - 33, muted)
-    drawText(page, 52, Adapter.Height - 33, accent)
 
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1, 1)
+end
+
+function Adapter.MousePressed(x, y, gui)
+    if not Adapter.Visible then
+        return false
+    end
+
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+
+    local panelX = screenWidth - Adapter.Width * Adapter.Animation.Progress
+    local panelY = (screenHeight - Adapter.Height) / 2
+
+    local localX = x - panelX
+    local localY = y - panelY
+
+    for _, item in ipairs(Adapter.Buttons) do
+        local inside =
+            localX >= item.X and
+            localX <= item.X + item.Width and
+            localY >= item.Y and
+            localY <= item.Y + item.Height
+
+        if inside then
+            if item.ID == "close" then
+                gui.Close()
+            elseif item.ID == "back" then
+                gui.GoBack()
+            elseif item.ID == "page_settings" then
+                gui.ShowPage("Settings")
+            elseif item.ID == "page_security" then
+                gui.ShowPage("Security")
+            elseif item.ID == "page_saved" then
+                gui.ShowPage("SavedScripts")
+            elseif item.ID == "page_macros" then
+                gui.ShowPage("Macros")
+            elseif item.ID == "theme" then
+                local current = gui.GetState()
+                gui.SetTheme(current.Theme == "Light" and "Dark" or "Light")
+            end
+
+            return true, item.ID
+        end
+    end
+
+    return false
 end
 
 function Adapter.GetStatus()
