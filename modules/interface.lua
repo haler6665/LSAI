@@ -1,580 +1,619 @@
 
--- LSAI Interface Module
--- Version: 0.3.0
--- Default language: English
+--[[
+    LSAI v0.8
+    Interface Preview
+
+    - No external script execution
+    - No file modification
+    - No macro execution
+]]
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
-local Interface = {}
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
 
-local CONFIG = {
-    Width = 330,
-    Height = 380,
-    AnimationTime = 0.25,
-    HoldTime = 0.4
-}
+-- Cleanup
+local old = PlayerGui:FindFirstChild("LSAI_GUI")
+if old then
+    old:Destroy()
+end
 
-local COLORS = {
-    Background = Color3.fromRGB(19, 21, 28),
-    Panel = Color3.fromRGB(25, 28, 37),
-    Button = Color3.fromRGB(37, 41, 53),
-    Accent = Color3.fromRGB(88, 125, 245),
-    Text = Color3.fromRGB(238, 240, 248),
-    Muted = Color3.fromRGB(145, 151, 168),
-    Border = Color3.fromRGB(55, 60, 74)
-}
+-- Colors
+local BG = Color3.fromRGB(23, 23, 27)
+local PANEL = Color3.fromRGB(32, 32, 37)
+local BUTTON = Color3.fromRGB(46, 46, 53)
+local WHITE = Color3.fromRGB(235, 235, 235)
+local GREY = Color3.fromRGB(115, 115, 120)
 
-local navigation = {
-    {
-        Name = "Settings",
-        Icon = "⚙"
-    },
-    {
-        Name = "Security",
-        Icon = "🛡"
-    },
-    {
-        Name = "Saved Scripts",
-        Icon = "▤"
-    },
-    {
-        Name = "Macros",
-        Icon = "🧩"
-    }
-}
+local opened = false
+local busy = false
+local animations = true
+local selectedMacro = 1
+local currentPage = "menu"
 
-local function create(className, properties, parent)
-    local object = Instance.new(className)
+local connections = {}
 
-    for property, value in pairs(properties) do
-        object[property] = value
+local function Connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(connections, connection)
+    return connection
+end
+
+-- GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "LSAI_GUI"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = PlayerGui
+
+local panel = Instance.new("Frame")
+panel.Name = "MainPanel"
+panel.Size = UDim2.new(0, 330, 0, 430)
+panel.Position = UDim2.new(1, 0, 0.5, -215)
+panel.BackgroundColor3 = BG
+panel.BorderSizePixel = 0
+panel.ClipsDescendants = true
+panel.Parent = gui
+
+Instance.new("UICorner", panel).CornerRadius =
+    UDim.new(0, 12)
+
+-- Full-height handle
+local handle = Instance.new("TextButton")
+handle.Name = "OpenHandle"
+handle.Size = UDim2.new(0, 10, 0, 430)
+handle.Position = UDim2.new(1, -10, 0.5, -215)
+handle.BackgroundColor3 = GREY
+handle.BorderSizePixel = 0
+handle.Text = ""
+handle.AutoButtonColor = false
+handle.ZIndex = 20
+handle.Parent = gui
+
+Instance.new("UICorner", handle).CornerRadius =
+    UDim.new(0, 5)
+
+-- Open / close
+local function SetOpened(value)
+    if busy or opened == value then
+        return
     end
 
-    object.Parent = parent
-    return object
+    busy = true
+    opened = value
+
+    local panelPosition
+    local handlePosition
+
+    if opened then
+        panelPosition = UDim2.new(1, -330, 0.5, -215)
+        handlePosition = UDim2.new(1, -340, 0.5, -215)
+    else
+        panelPosition = UDim2.new(1, 0, 0.5, -215)
+        handlePosition = UDim2.new(1, -10, 0.5, -215)
+    end
+
+    if animations then
+        local info = TweenInfo.new(
+            0.25,
+            Enum.EasingStyle.Quart,
+            Enum.EasingDirection.Out
+        )
+
+        local panelTween = TweenService:Create(
+            panel, info, {Position = panelPosition}
+        )
+
+        local handleTween = TweenService:Create(
+            handle, info, {Position = handlePosition}
+        )
+
+        panelTween:Play()
+        handleTween:Play()
+
+        panelTween.Completed:Wait()
+    else
+        panel.Position = panelPosition
+        handle.Position = handlePosition
+    end
+
+    busy = false
 end
 
-local function corner(parent, radius)
-    create("UICorner", {
-        CornerRadius = UDim.new(0, radius)
-    }, parent)
+Connect(handle.Activated, function()
+    SetOpened(not opened)
+end)
+
+-- Header
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 65)
+header.BackgroundColor3 = PANEL
+header.BorderSizePixel = 0
+header.Parent = panel
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -55, 0, 30)
+title.Position = UDim2.new(0, 14, 0, 4)
+title.BackgroundTransparency = 1
+title.Text = "LSAI"
+title.TextColor3 = WHITE
+title.TextSize = 22
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = header
+
+local creatorShadow = Instance.new("TextLabel")
+creatorShadow.Size = UDim2.new(1, -55, 0, 20)
+creatorShadow.Position = UDim2.new(0, 16, 0, 35)
+creatorShadow.BackgroundTransparency = 1
+creatorShadow.Text = "Creator: @haler6665"
+creatorShadow.TextColor3 = GREY
+creatorShadow.TextTransparency = 0.65
+creatorShadow.TextSize = 11
+creatorShadow.Font = Enum.Font.Gotham
+creatorShadow.TextXAlignment = Enum.TextXAlignment.Left
+creatorShadow.Parent = header
+
+local creator = Instance.new("TextLabel")
+creator.Size = UDim2.new(1, -55, 0, 20)
+creator.Position = UDim2.new(0, 15, 0, 34)
+creator.BackgroundTransparency = 1
+creator.Text = "Creator: @haler6665"
+creator.TextColor3 = Color3.fromRGB(125, 125, 130)
+creator.TextTransparency = 0.35
+creator.TextSize = 11
+creator.Font = Enum.Font.Gotham
+creator.TextXAlignment = Enum.TextXAlignment.Left
+creator.Parent = header
+
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 35, 0, 35)
+closeButton.Position = UDim2.new(1, -43, 0, 13)
+closeButton.BackgroundColor3 = BUTTON
+closeButton.Text = "×"
+closeButton.TextColor3 = WHITE
+closeButton.TextSize = 24
+closeButton.Font = Enum.Font.Gotham
+closeButton.Parent = header
+
+Instance.new("UICorner", closeButton).CornerRadius =
+    UDim.new(0, 8)
+
+-- Section title
+local sectionTitle = Instance.new("TextLabel")
+sectionTitle.Position = UDim2.new(0, 12, 0, 72)
+sectionTitle.Size = UDim2.new(1, -65, 0, 30)
+sectionTitle.BackgroundTransparency = 1
+sectionTitle.Text = "Main Menu"
+sectionTitle.TextColor3 = WHITE
+sectionTitle.TextSize = 16
+sectionTitle.Font = Enum.Font.GothamBold
+sectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+sectionTitle.Parent = panel
+
+local backButton = Instance.new("TextButton")
+backButton.Size = UDim2.new(0, 38, 0, 30)
+backButton.Position = UDim2.new(1, -48, 0, 72)
+backButton.BackgroundColor3 = BUTTON
+backButton.Text = ">"
+backButton.TextColor3 = WHITE
+backButton.TextSize = 22
+backButton.Font = Enum.Font.GothamBold
+backButton.Visible = false
+backButton.Parent = panel
+
+Instance.new("UICorner", backButton).CornerRadius =
+    UDim.new(0, 7)
+
+-- Sidebar
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 44, 1, -115)
+sidebar.Position = UDim2.new(1, -50, 0, 110)
+sidebar.BackgroundTransparency = 1
+sidebar.Parent = panel
+
+local sidebarLayout = Instance.new("UIListLayout")
+sidebarLayout.Padding = UDim.new(0, 9)
+sidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sidebarLayout.Parent = sidebar
+
+-- Content
+local content = Instance.new("ScrollingFrame")
+content.Name = "Content"
+content.Position = UDim2.new(0, 10, 0, 110)
+content.Size = UDim2.new(1, -70, 1, -120)
+content.BackgroundTransparency = 1
+content.BorderSizePixel = 0
+content.ScrollBarThickness = 3
+content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+content.CanvasSize = UDim2.new(0, 0, 0, 0)
+content.Parent = panel
+
+local contentLayout = Instance.new("UIListLayout")
+contentLayout.Padding = UDim.new(0, 8)
+contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+contentLayout.Parent = content
+
+local contentPadding = Instance.new("UIPadding")
+contentPadding.PaddingBottom = UDim.new(0, 12)
+contentPadding.Parent = content
+
+local function ClearContent()
+    for _, child in ipairs(content:GetChildren()) do
+        if child ~= contentLayout and child ~= contentPadding then
+            child:Destroy()
+        end
+    end
 end
 
-local function makeLabel(parent, text, position, size, textSize)
-    return create("TextLabel", {
-        BackgroundTransparency = 1,
-        Position = position,
-        Size = size,
-        Text = text,
-        TextColor3 = COLORS.Text,
-        TextSize = textSize or 14,
-        Font = Enum.Font.Gotham,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextYAlignment = Enum.TextYAlignment.Center
-    }, parent)
+local function MakeLabel(text, height)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -4, 0, height or 35)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = WHITE
+    label.TextSize = 14
+    label.Font = Enum.Font.Gotham
+    label.TextWrapped = true
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = content
+    return label
 end
 
-local function makeButton(parent, text, position, size)
-    local button = create("TextButton", {
-        Position = position,
-        Size = size,
-        BackgroundColor3 = COLORS.Button,
-        BorderSizePixel = 0,
-        Text = text,
-        TextColor3 = COLORS.Text,
-        TextSize = 14,
-        Font = Enum.Font.GothamMedium,
-        AutoButtonColor = true
-    }, parent)
+local function MakeButton(text, callback, color)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, -4, 0, 42)
+    button.BackgroundColor3 = color or BUTTON
+    button.BorderSizePixel = 0
+    button.Text = text
+    button.TextColor3 = WHITE
+    button.TextSize = 13
+    button.Font = Enum.Font.Gotham
+    button.TextWrapped = true
+    button.Parent = content
 
-    corner(button, 7)
+    Instance.new("UICorner", button).CornerRadius =
+        UDim.new(0, 8)
 
+    Connect(button.Activated, callback)
     return button
 end
 
-function Interface:Create()
-    local player = Players.LocalPlayer
+-- Pages
+local ShowMenu
+local ShowSettings
+local ShowSecurity
+local ShowScripts
+local ShowMacro
+local ShowMacroEditor
+local ShowLog
 
-    if not player then
-        return false, "LocalPlayer unavailable"
-    end
+local function OpenSection(name)
+    sectionTitle.Text = name
+    sidebar.Visible = false
+    backButton.Visible = true
+    content.Size = UDim2.new(1, -20, 1, -120)
+end
 
-    local playerGui = player:WaitForChild("PlayerGui")
-
-    local oldGui = playerGui:FindFirstChild("LSAI_GUI")
-
-    if oldGui then
-        oldGui:Destroy()
-    end
-
-    local gui = create("ScreenGui", {
-        Name = "LSAI_GUI",
-        ResetOnSpawn = false,
-        DisplayOrder = 20,
-        ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    }, playerGui)
-
-    -- Main window
-
-    local panel = create("Frame", {
-        Name = "MainPanel",
-        Size = UDim2.fromOffset(
-            CONFIG.Width,
-            CONFIG.Height
-        ),
-        Position = UDim2.new(1, 0, 0.5, -190),
-        BackgroundColor3 = COLORS.Background,
-        BorderSizePixel = 0
-    }, gui)
-
-    corner(panel, 10)
-
-    -- Vertical navigation separator.
-    -- Its height always matches the GUI.
-
-    create("Frame", {
-        Name = "VerticalLine",
-        Position = UDim2.new(1, -50, 0, 0),
-        Size = UDim2.new(0, 1, 1, 0),
-        BackgroundColor3 = COLORS.Border,
-        BorderSizePixel = 0
-    }, panel)
-
-    -- Header
-
-    local header = create("Frame", {
-        Size = UDim2.new(1, -50, 0, 65),
-        BackgroundColor3 = COLORS.Panel,
-        BorderSizePixel = 0
-    }, panel)
-
-    corner(header, 10)
-
-    makeLabel(
-        header,
-        "LSAI",
-        UDim2.fromOffset(15, 7),
-        UDim2.fromOffset(180, 27),
-        21
-    ).Font = Enum.Font.GothamBold
-
-    makeLabel(
-        header,
-        "Creator: @haler6665",
-        UDim2.fromOffset(16, 34),
-        UDim2.fromOffset(180, 17),
-        10
-    ).TextColor3 = COLORS.Muted
-
-    local closeButton = makeButton(
-        header,
-        "×",
-        UDim2.new(1, -40, 0, 14),
-        UDim2.fromOffset(29, 29)
-    )
-
-    -- Content area
-
-    local content = create("Frame", {
-        Name = "Content",
-        Position = UDim2.fromOffset(0, 66),
-        Size = UDim2.new(1, -51, 1, -66),
-        BackgroundTransparency = 1,
-        ClipsDescendants = true
-    }, panel)
-
-    local pages = {}
-
-    local function createPage(name)
-        local page = create("Frame", {
-            Name = name,
-            Size = UDim2.fromScale(1, 1),
-            BackgroundTransparency = 1,
-            Visible = false
-        }, content)
-
-        pages[name] = page
-        return page
-    end
-
-    -- Home page
-
-    local home = createPage("Home")
-
-    makeLabel(
-        home,
-        "Welcome to LSAI",
-        UDim2.fromOffset(16, 15),
-        UDim2.new(1, -30, 0, 30),
-        19
-    ).Font = Enum.Font.GothamBold
-
-    makeLabel(
-        home,
-        "Your safety assistant",
-        UDim2.fromOffset(17, 49),
-        UDim2.new(1, -30, 0, 22),
-        12
-    ).TextColor3 = COLORS.Muted
-
-    local status = makeLabel(
-        home,
-        "System status: Ready",
-        UDim2.fromOffset(17, 91),
-        UDim2.new(1, -30, 0, 25),
-        13
-    )
-
-    status.TextColor3 = Color3.fromRGB(110, 210, 145)
-
-    makeLabel(
-        home,
-        "Choose a section using the buttons on the right.",
-        UDim2.fromOffset(17, 130),
-        UDim2.new(1, -30, 0, 50),
-        12
-    ).TextColor3 = COLORS.Muted
-
-    -- Settings page
-
-    local settings = createPage("Settings")
-
-    -- Security page
-
-    local security = createPage("Security")
-
-    -- Saved Scripts page
-
-    local scripts = createPage("SavedScripts")
-
-    -- Macros page
-
-    local macros = createPage("Macros")
-
-    local function createSection(name, description, parent)
-        local back = makeButton(
-            parent,
-            ">",
-            UDim2.fromOffset(13, 12),
-            UDim2.fromOffset(35, 30)
-        )
-
-        back.BackgroundColor3 = COLORS.Accent
-
-        makeLabel(
-            parent,
-            name,
-            UDim2.fromOffset(58, 12),
-            UDim2.new(1, -70, 0, 30),
-            18
-        ).Font = Enum.Font.GothamBold
-
-        makeLabel(
-            parent,
-            description,
-            UDim2.fromOffset(15, 62),
-            UDim2.new(1, -30, 0, 55),
-            12
-        ).TextColor3 = COLORS.Muted
-
-        return back
-    end
-
-    -- Section content
-
-    local settingsBack = createSection(
-        "Settings",
-        "Configure the LSAI interface.",
-        settings
-    )
-
-    local securityBack = createSection(
-        "Security",
-        "Inspect Lua source code as text. No code is executed.",
-        security
-    )
-
-    local scriptsBack = createSection(
-        "Saved Scripts",
-        "Your saved script list will appear here.",
-        scripts
-    )
-
-    local macrosBack = createSection(
-        "Macros",
-        "Create and organize visual macro blocks.",
-        macros
-    )
-
-    -- Security input
-
-    local sourceBox = create("TextBox", {
-        Position = UDim2.fromOffset(15, 130),
-        Size = UDim2.new(1, -30, 0, 100),
-        BackgroundColor3 = COLORS.Panel,
-        BorderSizePixel = 0,
-        Text = "",
-        PlaceholderText = "Paste Lua source here...",
-        PlaceholderColor3 = COLORS.Muted,
-        TextColor3 = COLORS.Text,
-        TextSize = 12,
-        Font = Enum.Font.Code,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextYAlignment = Enum.TextYAlignment.Top,
-        TextWrapped = false,
-        MultiLine = true,
-        ClearTextOnFocus = false
-    }, security)
-
-    corner(sourceBox, 6)
-
-    local scanResult = makeLabel(
-        security,
-        "Waiting for scan...",
-        UDim2.fromOffset(15, 275),
-        UDim2.new(1, -30, 0, 55),
-        11
-    )
-
-    scanResult.TextWrapped = true
-    scanResult.TextYAlignment = Enum.TextYAlignment.Top
-
-    local scanButton = makeButton(
-        security,
-        "Scan",
-        UDim2.fromOffset(15, 240),
-        UDim2.fromOffset(90, 30)
-    )
-
-    local patterns = {
-        "loadstring",
-        "httpget",
-        "request",
-        "writefile",
-        "delfile",
-        "getgenv",
-        "hookfunction"
+local menuItems = {
+    {
+        icon = "⚙",
+        name = "Settings",
+        action = function() ShowSettings() end
+    },
+    {
+        icon = "🛡",
+        name = "Security",
+        action = function() ShowSecurity() end
+    },
+    {
+        icon = "▣",
+        name = "Saved Scripts",
+        action = function() ShowScripts() end
+    },
+    {
+        icon = "🧩",
+        name = "Macro",
+        action = function() ShowMacro() end
     }
+}
 
-    scanButton.Activated:Connect(function()
-        local source = sourceBox.Text
-
-        if #source > 100000 then
-            scanResult.Text = "Source exceeds the 100 KB limit."
-            return
-        end
-
-        local findings = {}
-        local lineNumber = 0
-
-        for line in (source .. "\n"):gmatch("(.-)\n") do
-            lineNumber += 1
-
-            local lowered = line:lower()
-
-            for _, pattern in ipairs(patterns) do
-                if lowered:find(pattern, 1, true) then
-                    table.insert(
-                        findings,
-                        pattern .. " - line " .. lineNumber
-                    )
-                end
-            end
-        end
-
-        if #findings == 0 then
-            scanResult.Text =
-                "No configured patterns found. This does not prove safety."
-        else
-            scanResult.Text =
-                "Review required:\n" .. table.concat(findings, "\n")
-        end
-    end)
-
-    -- Navigation buttons on the RIGHT
-
-    local navigationButtons = {}
-
-    local selectedPage = "Home"
-
-    local function showPage(name)
-        selectedPage = name
-
-        for pageName, page in pairs(pages) do
-            page.Visible = pageName == name
+local function BuildSidebar()
+    for _, child in ipairs(sidebar:GetChildren()) do
+        if child ~= sidebarLayout then
+            child:Destroy()
         end
     end
 
-    local function goHome()
-        showPage("Home")
+    for index, item in ipairs(menuItems) do
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.new(0, 42, 0, 42)
+        button.BackgroundColor3 = BUTTON
+        button.BorderSizePixel = 0
+        button.Text = item.icon
+        button.TextColor3 = WHITE
+        button.TextSize = 22
+        button.LayoutOrder = index
+        button.Parent = sidebar
 
-        for _, button in ipairs(navigationButtons) do
-            button.Visible = true
-        end
-    end
+        Instance.new("UICorner", button).CornerRadius =
+            UDim.new(0, 9)
 
-    settingsBack.Activated:Connect(goHome)
-    securityBack.Activated:Connect(goHome)
-    scriptsBack.Activated:Connect(goHome)
-    macrosBack.Activated:Connect(goHome)
+        local tooltip = Instance.new("TextLabel")
+        tooltip.Size = UDim2.new(0, 150, 0, 34)
+        tooltip.Position = UDim2.new(0, -158, 0, 4)
+        tooltip.BackgroundColor3 = Color3.fromRGB(55, 55, 62)
+        tooltip.TextColor3 = WHITE
+        tooltip.TextSize = 12
+        tooltip.Font = Enum.Font.Gotham
+        tooltip.Text = item.name
+        tooltip.Visible = false
+        tooltip.ZIndex = 30
+        tooltip.Parent = button
 
-    local pageMap = {
-        Settings = "Settings",
-        Security = "Security",
-        ["Saved Scripts"] = "SavedScripts",
-        Macros = "Macros"
-    }
+        Instance.new("UICorner", tooltip).CornerRadius =
+            UDim.new(0, 7)
 
-    for index, item in ipairs(navigation) do
-        local navButton = makeButton(
-            panel,
-            item.Icon,
-            UDim2.new(1, -43, 0, 88 + (index - 1) * 49),
-            UDim2.fromOffset(36, 36)
-        )
-
-        navButton.TextSize = 17
-
-        local tooltip = create("TextLabel", {
-            Position = UDim2.new(1, -190, 0, 88 + (index - 1) * 49),
-            Size = UDim2.fromOffset(140, 36),
-            BackgroundColor3 = COLORS.Button,
-            Text = item.Name,
-            TextColor3 = COLORS.Text,
-            TextSize = 12,
-            Font = Enum.Font.GothamMedium,
-            Visible = false,
-            BorderSizePixel = 0,
-            ZIndex = 5
-        }, panel)
-
-        corner(tooltip, 6)
-
-        local holding = false
-
-        navButton.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1
-                or input.UserInputType == Enum.UserInputType.Touch then
-
-                holding = true
-
-                task.delay(CONFIG.HoldTime, function()
-                    if holding and navButton.Visible then
-                        tooltip.Visible = true
-                    end
-                end)
+        Connect(button.InputBegan, function(input)
+            if input.UserInputType == Enum.UserInputType.Touch
+                or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                tooltip.Visible = true
             end
         end)
 
-        navButton.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1
-                or input.UserInputType == Enum.UserInputType.Touch then
-
-                holding = false
+        Connect(button.InputEnded, function(input)
+            if input.UserInputType == Enum.UserInputType.Touch
+                or input.UserInputType == Enum.UserInputType.MouseButton1 then
                 tooltip.Visible = false
             end
         end)
 
-        navButton.Activated:Connect(function()
-            showPage(pageMap[item.Name])
-
-            for _, otherButton in ipairs(navigationButtons) do
-                otherButton.Visible = false
-            end
-
+        Connect(button.Activated, function()
             tooltip.Visible = false
+            item.action()
         end)
-
-        table.insert(navigationButtons, navButton)
     end
-
-    -- Side handle.
-    -- Its visible line has exactly the GUI height.
-
-    local handle = create("TextButton", {
-        Name = "SideHandle",
-        Position = UDim2.new(1, -4, 0.5, -190),
-        Size = UDim2.fromOffset(14, CONFIG.Height),
-        BackgroundTransparency = 1,
-        Text = "",
-        AutoButtonColor = false,
-        ZIndex = 10
-    }, gui)
-
-    local handleLine = create("Frame", {
-        Position = UDim2.new(1, -3, 0, 0),
-        Size = UDim2.new(0, 3, 1, 0),
-        BackgroundColor3 = COLORS.Accent,
-        BorderSizePixel = 0
-    }, handle)
-
-    corner(handleLine, 3)
-
-    -- Opening and closing animation
-
-    local isOpen = false
-    local moving = false
-
-    local function setOpen(value)
-        if moving or not gui.Parent then
-            return
-        end
-
-        isOpen = value
-        moving = true
-
-        local target
-
-        if isOpen then
-            target = UDim2.new(1, -CONFIG.Width, 0.5, -190)
-        else
-            target = UDim2.new(1, 0, 0.5, -190)
-        end
-
-        local tween = TweenService:Create(
-            panel,
-            TweenInfo.new(
-                CONFIG.AnimationTime,
-                Enum.EasingStyle.Quart,
-                Enum.EasingDirection.Out
-            ),
-            {
-                Position = target
-            }
-        )
-
-        tween:Play()
-        tween.Completed:Wait()
-
-        moving = false
-    end
-
-    handle.Activated:Connect(function()
-        setOpen(not isOpen)
-    end)
-
-    closeButton.Activated:Connect(function()
-        setOpen(false)
-    end)
-
-    -- Always start on Home
-
-    showPage("Home")
-
-    self.Gui = gui
-    self.Panel = panel
-    self.Open = function()
-        setOpen(true)
-    end
-    self.Close = function()
-        setOpen(false)
-    end
-    self.Destroy = function()
-        gui:Destroy()
-    end
-
-    return true, "LSAI interface created"
 end
 
-return Interface
+ShowMenu = function()
+    currentPage = "menu"
+    ClearContent()
+
+    sectionTitle.Text = "Main Menu"
+    sidebar.Visible = true
+    backButton.Visible = false
+    content.Size = UDim2.new(1, -70, 1, -120)
+
+    MakeLabel("Select a section on the right.", 55)
+end
+
+Connect(backButton.Activated, ShowMenu)
+
+-- Settings
+ShowSettings = function()
+    currentPage = "settings"
+    OpenSection("Settings")
+    ClearContent()
+
+    MakeLabel("Interface language", 28)
+    MakeButton("English", function() end)
+    MakeButton("Русский", function() end)
+    MakeButton("Română", function() end)
+    MakeButton("Українська", function() end)
+
+    MakeLabel("Appearance", 28)
+
+    MakeButton(
+        animations and "Animations: ON" or "Animations: OFF",
+        function()
+            animations = not animations
+            ShowSettings()
+        end
+    )
+end
+
+-- Security placeholder
+ShowSecurity = function()
+    currentPage = "security"
+    OpenSection("Security")
+    ClearContent()
+
+    MakeLabel("Security Center", 30)
+    MakeLabel("Scanner is not connected yet.", 40)
+    MakeButton("Scan interface preview", function()
+        MakeLabel("This is only a UI preview.", 35)
+    end)
+end
+
+ShowLog = function(name, details)
+    currentPage = "log"
+    OpenSection("Security")
+    ClearContent()
+
+    MakeLabel("Record: " .. name, 35)
+    MakeLabel(details, 100)
+
+    MakeButton("Back to Security", ShowSecurity)
+end
+
+-- Saved scripts placeholder
+ShowScripts = function()
+    currentPage = "scripts"
+    OpenSection("Saved Scripts")
+    ClearContent()
+
+    MakeLabel("Saved Scripts", 30)
+    MakeLabel("No scripts loaded.", 45)
+    MakeLabel("File access is not connected.", 55)
+end
+
+-- Macro
+local macroBlocks = {
+    {name = "Event", color = Color3.fromRGB(45, 105, 190)},
+    {name = "Delay", color = Color3.fromRGB(190, 155, 40)},
+    {name = "Action", color = Color3.fromRGB(130, 75, 180)},
+    {name = "Condition", color = Color3.fromRGB(195, 105, 40)},
+    {name = "Repeat", color = Color3.fromRGB(55, 140, 75)}
+}
+
+ShowMacroEditor = function()
+    currentPage = "macro_editor"
+    OpenSection("Macro")
+    ClearContent()
+
+    MakeLabel("Macro " .. selectedMacro, 30)
+    MakeLabel("Workspace", 25)
+
+    local workspaceFrame = Instance.new("Frame")
+    workspaceFrame.Size = UDim2.new(1, -4, 0, 185)
+    workspaceFrame.BackgroundColor3 = Color3.fromRGB(27, 27, 32)
+    workspaceFrame.BorderSizePixel = 0
+    workspaceFrame.Parent = content
+
+    Instance.new("UICorner", workspaceFrame).CornerRadius =
+        UDim.new(0, 8)
+
+    local workspaceLayout = Instance.new("UIListLayout")
+    workspaceLayout.Padding = UDim.new(0, 5)
+    workspaceLayout.Parent = workspaceFrame
+
+    local workspacePadding = Instance.new("UIPadding")
+    workspacePadding.PaddingTop = UDim.new(0, 8)
+    workspacePadding.PaddingLeft = UDim.new(0, 8)
+    workspacePadding.PaddingRight = UDim.new(0, 8)
+    workspacePadding.Parent = workspaceFrame
+
+    local function AddBlock(info)
+        local block = Instance.new("TextButton")
+        block.Size = UDim2.new(1, -4, 0, 28)
+        block.BackgroundColor3 = info.color
+        block.BorderSizePixel = 0
+        block.Text = info.name .. "   ×"
+        block.TextColor3 = WHITE
+        block.TextSize = 12
+        block.Parent = workspaceFrame
+
+        Instance.new("UICorner", block).CornerRadius =
+            UDim.new(0, 6)
+
+        Connect(block.Activated, function()
+            block:Destroy()
+        end)
+    end
+
+    MakeLabel("Add block", 28)
+
+    for _, info in ipairs(macroBlocks) do
+        MakeButton("+  " .. info.name, function()
+            AddBlock(info)
+        end, info.color)
+    end
+
+    MakeLabel("Tap a block to remove it.", 35)
+    MakeLabel("Visual editor only. Macros are not executed.", 45)
+end
+
+ShowMacro = function()
+    currentPage = "macro"
+    OpenSection("Macro")
+    ClearContent()
+
+    MakeLabel("Select a workspace", 35)
+
+    for i = 1, 3 do
+        local number = i
+        MakeButton("Macro " .. number, function()
+            selectedMacro = number
+            ShowMacroEditor()
+        end)
+    end
+end
+
+-- Close dialog
+local function ShowCloseDialog()
+    if gui:FindFirstChild("CloseDialog") then
+        return
+    end
+
+    local overlay = Instance.new("Frame")
+    overlay.Name = "CloseDialog"
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+    overlay.BackgroundTransparency = 0.4
+    overlay.ZIndex = 50
+    overlay.Parent = gui
+
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, 250, 0, 140)
+    box.Position = UDim2.new(0.5, -125, 0.5, -70)
+    box.BackgroundColor3 = PANEL
+    box.BorderSizePixel = 0
+    box.ZIndex = 51
+    box.Parent = overlay
+
+    Instance.new("UICorner", box).CornerRadius =
+        UDim.new(0, 10)
+
+    local question = Instance.new("TextLabel")
+    question.Size = UDim2.new(1, -20, 0, 50)
+    question.Position = UDim2.new(0, 10, 0, 8)
+    question.BackgroundTransparency = 1
+    question.Text = "Close LSAI?"
+    question.TextColor3 = WHITE
+    question.TextSize = 15
+    question.Font = Enum.Font.Gotham
+    question.ZIndex = 52
+    question.Parent = box
+
+    local stay = Instance.new("TextButton")
+    stay.Size = UDim2.new(0.46, 0, 0, 38)
+    stay.Position = UDim2.new(0.03, 0, 1, -48)
+    stay.BackgroundColor3 = BUTTON
+    stay.Text = "Continue"
+    stay.TextColor3 = WHITE
+    stay.TextSize = 12
+    stay.ZIndex = 52
+    stay.Parent = box
+
+    Instance.new("UICorner", stay).CornerRadius =
+        UDim.new(0, 7)
+
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.new(0.46, 0, 0, 38)
+    close.Position = UDim2.new(0.51, 0, 1, -48)
+    close.BackgroundColor3 = Color3.fromRGB(155, 45, 45)
+    close.Text = "Close"
+    close.TextColor3 = WHITE
+    close.TextSize = 12
+    close.ZIndex = 52
+    close.Parent = box
+
+    Instance.new("UICorner", close).CornerRadius =
+        UDim.new(0, 7)
+
+    Connect(stay.Activated, function()
+        overlay:Destroy()
+    end)
+
+    Connect(close.Activated, function()
+        for _, connection in ipairs(connections) do
+            pcall(function()
+                connection:Disconnect()
+            end)
+        end
+        gui:Destroy()
+    end)
+end
+
+Connect(closeButton.Activated, ShowCloseDialog)
+
+-- Build
+BuildSidebar()
+ShowMenu()
+SetOpened(false)
+
+print("LSAI v0.8 interface loaded")
