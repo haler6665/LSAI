@@ -1,71 +1,69 @@
-
--- LSAI - Main Entry Point
--- Version: 0.1.0
--- Default language: English
+--[[
+    LSAI - Main Entry Point
+    Version: 0.5.0
+    Runtime: Roblox Luau
+]]
 
 local LSAI = {
     Name = "LSAI",
-    Version = "0.1.0",
+    Version = "0.5.0",
     Language = "en",
-    Modules = {},
-    Status = "Starting"
+    Status = "Starting",
+    Boot = nil
 }
 
-local moduleNames = {
-    "security",
-    "instructions",
-    "device",
-    "interface",
-    "settings",
-    "macros"
-}
+function LSAI:Start()
+    print("========================")
+    print("       LSAI")
+    print("========================")
 
-local function loadModule(name)
-    local success, result = pcall(require, "modules." .. name)
+    local bootScript = script.Parent:FindFirstChild("boot")
 
-    if not success then
-        warn("[LSAI] Module failed: " .. name)
-        warn(tostring(result))
+    if not bootScript or not bootScript:IsA("ModuleScript") then
+        self.Status = "Failed"
+        warn("[LSAI] boot ModuleScript not found.")
         return false
     end
 
-    if type(result) ~= "table" then
-        warn("[LSAI] Invalid module: " .. name)
+    local success, Boot = pcall(require, bootScript)
+
+    if not success or type(Boot) ~= "table" then
+        self.Status = "Failed"
+        warn("[LSAI] Could not load boot module.")
+        warn(tostring(Boot))
         return false
     end
 
-    LSAI.Modules[name] = result
-    print("[LSAI] Loaded: " .. name)
+    self.Boot = Boot
+
+    local started, result = pcall(function()
+        return Boot:Start()
+    end)
+
+    if not started or result ~= true then
+        self.Status = "Failed"
+        warn("[LSAI] Startup failed.")
+        if not started then
+            warn(tostring(result))
+        end
+        return false
+    end
+
+    self.Status = "Ready"
+
+    print("[LSAI] Startup completed.")
+    print("[LSAI] Status: " .. self.Status)
 
     return true
 end
 
-function LSAI:Start()
-    print("========== LSAI ==========")
-    print("Version: " .. self.Version)
-    print("Checking modules...")
-
-    local loaded = 0
-
-    for _, name in ipairs(moduleNames) do
-        if loadModule(name) then
-            loaded = loaded + 1
-        end
-    end
-
-    if loaded == #moduleNames then
-        self.Status = "Ready"
-        print("[LSAI] All modules loaded.")
-    else
-        self.Status = "Incomplete"
-        warn("[LSAI] Some modules could not be loaded.")
-    end
-
-    print("[LSAI] Status: " .. self.Status)
-    print("==========================")
+function LSAI:GetInfo()
+    return {
+        Name = self.Name,
+        Version = self.Version,
+        Language = self.Language,
+        Status = self.Status
+    }
 end
 
-LSAI:Start()
-
 return LSAI
-
