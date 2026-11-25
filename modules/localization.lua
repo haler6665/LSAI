@@ -1,18 +1,22 @@
-
 --[[
     LSAI Localization Module
-    Version: 0.4.0
+    Version: 0.5.0
     Runtime: Standard Lua
+
+    Supported translations:
+    English, Russian, Romanian,
+    Italian, German, French.
 ]]
 
 local Localization = {
-    Version = "0.4.0",
+    Name = "LSAI Localization",
+    Version = "0.5.0",
+
     DefaultLanguage = "en",
-    CurrentLanguage = "en",
-    Translations = {}
+    CurrentLanguage = "en"
 }
 
-Localization.Translations = {
+local translations = {
     en = {
         app_name = "LSAI",
         welcome = "Welcome to LSAI",
@@ -218,28 +222,60 @@ Localization.Translations = {
     }
 }
 
-function Localization.SetLanguage(code)
+local function copyTable(source)
+    local result = {}
+
+    for key, value in pairs(source) do
+        if type(value) == "table" then
+            result[key] = copyTable(value)
+        else
+            result[key] = value
+        end
+    end
+
+    return result
+end
+
+local function normalizeCode(code)
     if type(code) ~= "string" then
+        return nil
+    end
+
+    code = code:gsub("_", "-")
+    code = string.lower(code)
+
+    return code
+end
+
+function Localization.SetLanguage(code)
+    code = normalizeCode(code)
+
+    if not code or code == "" then
         return false, "Invalid language code"
     end
 
-    if not Localization.Translations[code] then
-        return false, "Translation is not available"
+    if translations[code] then
+        Localization.CurrentLanguage = code
+        return true, code
     end
 
-    Localization.CurrentLanguage = code
+    local baseCode = code:match("^([^-]+)")
 
-    return true
+    if baseCode and translations[baseCode] then
+        Localization.CurrentLanguage = baseCode
+        return true, baseCode
+    end
+
+    return false, "Translation is not available"
 end
 
 function Localization.Get(key)
-    local current = Localization.Translations[
-        Localization.CurrentLanguage
-    ]
+    if type(key) ~= "string" then
+        return "[invalid-key]"
+    end
 
-    local fallback = Localization.Translations[
-        Localization.DefaultLanguage
-    ]
+    local current = translations[Localization.CurrentLanguage]
+    local fallback = translations[Localization.DefaultLanguage]
 
     if current and current[key] ~= nil then
         return current[key]
@@ -249,17 +285,30 @@ function Localization.Get(key)
         return fallback[key]
     end
 
-    return "[" .. tostring(key) .. "]"
+    return "[" .. key .. "]"
 end
 
 function Localization.HasLanguage(code)
-    return Localization.Translations[code] ~= nil
+    code = normalizeCode(code)
+
+    if not code then
+        return false
+    end
+
+    if translations[code] then
+        return true
+    end
+
+    local baseCode = code:match("^([^-]+)")
+
+    return baseCode ~= nil
+        and translations[baseCode] ~= nil
 end
 
 function Localization.GetLanguages()
     local result = {}
 
-    for code in pairs(Localization.Translations) do
+    for code in pairs(translations) do
         result[#result + 1] = code
     end
 
@@ -268,9 +317,59 @@ function Localization.GetLanguages()
     return result
 end
 
+function Localization.GetTranslation(code)
+    code = normalizeCode(code)
+
+    if not code then
+        return nil
+    end
+
+    local baseCode = code:match("^([^-]+)")
+    local selected = translations[code]
+        or translations[baseCode]
+
+    if not selected then
+        return nil
+    end
+
+    return copyTable(selected)
+end
+
+function Localization.GetStats()
+    local total = 0
+
+    for _ in pairs(translations.en) do
+        total = total + 1
+    end
+
+    local result = {}
+
+    for code, language in pairs(translations) do
+        local translated = 0
+
+        for key in pairs(translations.en) do
+            if language[key] ~= nil then
+                translated = translated + 1
+            end
+        end
+
+        result[code] = {
+            Translated = translated,
+            Total = total,
+            Percentage = total > 0
+                and math.floor(translated / total * 100)
+                or 0
+        }
+    end
+
+    return result
+end
+
 function Localization.GetInfo()
     return {
+        Name = Localization.Name,
         Version = Localization.Version,
+        DefaultLanguage = Localization.DefaultLanguage,
         CurrentLanguage = Localization.CurrentLanguage,
         AvailableLanguages = #Localization.GetLanguages()
     }
